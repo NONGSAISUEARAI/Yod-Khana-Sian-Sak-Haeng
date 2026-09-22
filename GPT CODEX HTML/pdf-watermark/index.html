@@ -24,7 +24,8 @@
     button:hover,.button:hover { transform:translateY(-1px); } button:disabled { opacity:.45; cursor:not-allowed; transform:none; }
     .controls { display:none; grid-template-columns:1.3fr .7fr; gap:26px; padding:28px; }.controls.show { display:grid; }
     .field { margin-bottom:17px; }.field label { display:flex; justify-content:space-between; margin-bottom:7px; font-size:14px; font-weight:700; }.value { color:var(--blue); }
-    input[type=text],select { width:100%; padding:12px; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--ink); font:inherit; }
+    input[type=text],textarea,select { width:100%; padding:12px; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--ink); font:inherit; }
+    textarea { min-height:96px; resize:vertical; line-height:1.5; }
     input[type=range] { width:100%; accent-color:var(--blue); }
     .choices { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }.choices button { padding:10px 6px; color:var(--ink); background:#f3f6fa; font-size:12px; }.choices button.active { background:var(--ink); color:#fff; }
     .side { padding:19px; border-radius:14px; background:#f7f9fc; }.file-name { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin:4px 0 5px; font-weight:800; }.meta { margin:0 0 21px; color:var(--muted); font-size:13px; }
@@ -40,7 +41,8 @@
     <div class="drop" id="dropZone"><input id="pdfFile" type="file" accept="application/pdf,.pdf"><div><div class="file-icon">PDF</div><h2>ลากไฟล์ PDF มาวางที่นี่</h2><p>หรือเลือกไฟล์จากอุปกรณ์ของคุณ</p><label class="button" for="pdfFile">เลือกไฟล์ PDF</label></div></div>
     <div class="controls" id="controls">
       <div>
-        <div class="field"><label for="watermark">ข้อความลายน้ำ</label><input id="watermark" type="text" value="CONFIDENTIAL" maxlength="100"></div>
+        <div class="field"><label for="watermark">ข้อความลายน้ำ <span class="value">รองรับหลายบรรทัด</span></label><textarea id="watermark" rows="3" maxlength="500">CONFIDENTIAL</textarea></div>
+        <div class="field"><label>จัดแนวข้อความ</label><div class="choices" id="alignments"><button type="button" data-align="left">ชิดซ้าย</button><button type="button" class="active" data-align="center">กึ่งกลาง</button><button type="button" data-align="right">ชิดขวา</button></div></div>
         <div class="field"><label>ตำแหน่ง</label><div class="choices" id="positions"><button class="active" data-pos="center">กึ่งกลาง</button><button data-pos="top">ด้านบน</button><button data-pos="bottom">ด้านล่าง</button><button data-pos="tl">ซ้ายบน</button><button data-pos="tr">ขวาบน</button><button data-pos="br">ขวาล่าง</button></div></div>
         <div class="field"><label for="fontSize">ขนาด <span class="value" id="sizeValue">54</span></label><input id="fontSize" type="range" min="18" max="120" value="54"></div>
         <div class="field"><label for="opacity">ความโปร่งใส <span class="value" id="opacityValue">25%</span></label><input id="opacity" type="range" min="5" max="90" value="25"></div>
@@ -52,7 +54,7 @@
   </section>
 </main>
 <script>
-  const $=s=>document.querySelector(s); let sourceFile, position='center';
+  const $=s=>document.querySelector(s); let sourceFile, position='center', alignment='center';
   const input=$('#pdfFile'), drop=$('#dropZone'), controls=$('#controls'), apply=$('#apply'), status=$('#status');
   function selectFile(file){
     if(!file || !(file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf'))){ status.textContent='กรุณาเลือกไฟล์ PDF'; return; }
@@ -63,19 +65,26 @@
   ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')}));
   drop.addEventListener('drop',e=>selectFile(e.dataTransfer.files[0]));
   $('#positions').addEventListener('click',e=>{if(e.target.tagName!=='BUTTON')return; $('#positions .active').classList.remove('active');e.target.classList.add('active');position=e.target.dataset.pos});
+  $('#alignments').addEventListener('click',e=>{if(e.target.tagName!=='BUTTON')return; $('#alignments .active').classList.remove('active');e.target.classList.add('active');alignment=e.target.dataset.align});
   [['fontSize','sizeValue',v=>v],['opacity','opacityValue',v=>v+'%'],['rotation','rotationValue',v=>v+'°']].forEach(([id,out,format])=>$('#'+id).addEventListener('input',e=>$('#'+out).textContent=format(e.target.value)));
-  function watermarkPng(text, width, height, fontPx, alpha, degrees, pos){
+  function watermarkPng(text, width, height, fontPx, alpha, degrees, pos, align){
     const scale=2, canvas=document.createElement('canvas'); canvas.width=Math.ceil(width*scale); canvas.height=Math.ceil(height*scale); const ctx=canvas.getContext('2d'); ctx.scale(scale,scale);
-    ctx.font=`800 ${fontPx}px Arial, "Noto Sans Thai", sans-serif`; const metrics=ctx.measureText(text); const pad=36; let x=width/2,y=height/2;
-    if(pos==='top'){y=pad+fontPx} if(pos==='bottom'){y=height-pad} if(pos==='tl'){x=pad+metrics.width/2;y=pad+fontPx} if(pos==='tr'){x=width-pad-metrics.width/2;y=pad+fontPx} if(pos==='br'){x=width-pad-metrics.width/2;y=height-pad}
-    ctx.translate(x,y);ctx.rotate(degrees*Math.PI/180);ctx.globalAlpha=alpha;ctx.fillStyle='#173d7a';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,0,0); return canvas.toDataURL('image/png');
+    ctx.font=`800 ${fontPx}px Arial, "Noto Sans Thai", sans-serif`;
+    const lines=text.split(/\r?\n/), lineHeight=fontPx*1.25, blockHeight=lines.length*lineHeight;
+    const blockWidth=Math.max(...lines.map(line=>ctx.measureText(line || ' ').width));
+    const pad=36; let x=width/2,y=height/2;
+    if(pos==='top'){y=pad+blockHeight/2} if(pos==='bottom'){y=height-pad-blockHeight/2} if(pos==='tl'){x=pad+blockWidth/2;y=pad+blockHeight/2} if(pos==='tr'){x=width-pad-blockWidth/2;y=pad+blockHeight/2} if(pos==='br'){x=width-pad-blockWidth/2;y=height-pad-blockHeight/2}
+    ctx.translate(x,y);ctx.rotate(degrees*Math.PI/180);ctx.globalAlpha=alpha;ctx.fillStyle='#173d7a';ctx.textAlign=align;ctx.textBaseline='middle';
+    const textX=align==='left'?-blockWidth/2:align==='right'?blockWidth/2:0, firstY=-(blockHeight/2)+(lineHeight/2);
+    lines.forEach((line,index)=>ctx.fillText(line,textX,firstY+(index*lineHeight)));
+    return canvas.toDataURL('image/png');
   }
   apply.addEventListener('click',async()=>{
     const text=$('#watermark').value.trim(); if(!sourceFile||!text){status.textContent='กรุณาเลือกไฟล์และกรอกข้อความลายน้ำ';return;}
     apply.disabled=true; status.textContent='กำลังสร้างลายน้ำ…'; $('#result').classList.remove('show');
     try {
       const bytes=await sourceFile.arrayBuffer(), pdf=await PDFLib.PDFDocument.load(bytes); const font=Number($('#fontSize').value), alpha=Number($('#opacity').value)/100, deg=Number($('#rotation').value);
-      for(const page of pdf.getPages()){ const {width,height}=page.getSize(); const png=await pdf.embedPng(watermarkPng(text,width,height,font,alpha,deg,position)); page.drawImage(png,{x:0,y:0,width,height}); }
+      for(const page of pdf.getPages()){ const {width,height}=page.getSize(); const png=await pdf.embedPng(watermarkPng(text,width,height,font,alpha,deg,position,alignment)); page.drawImage(png,{x:0,y:0,width,height}); }
       const output=await pdf.save(); const url=URL.createObjectURL(new Blob([output],{type:'application/pdf'})); const link=$('#download'); if(link.dataset.url)URL.revokeObjectURL(link.dataset.url); link.href=url; link.dataset.url=url; link.download=sourceFile.name.replace(/\.pdf$/i,'')+'-watermarked.pdf'; $('#preview').src=url; $('#result').classList.add('show');status.textContent='เลื่อนดูตัวอย่าง แล้วกดดาวน์โหลดเมื่อพร้อม';
     } catch(err) { console.error(err); status.textContent='ไม่สามารถเปิดไฟล์นี้ได้ โปรดลองใช้ PDF อื่นหรือไฟล์ที่ไม่ได้เข้ารหัส'; }
     finally { apply.disabled=false; }
