@@ -1,0 +1,13 @@
+const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
+const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const {spawn}=require('node:child_process');
+(async()=>{const server=spawn(process.execPath,[path.join(__dirname,'../server.mjs')],{env:{...process.env,PORT:'4174'},stdio:['ignore','pipe','pipe'],windowsHide:true});let browser;
+try{
+ await new Promise((resolve,reject)=>{server.stdout.once('data',resolve);server.once('error',reject);server.once('exit',c=>reject(Error('Server exit '+c)))});
+ browser=await chromium.launch({channel:'chrome',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});const page=await browser.newPage({viewport:{width:1500,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:4174');await page.waitForSelector('#export-dxf');
+ await page.locator('#origin-x').fill('500');await page.locator('#origin-x').press('Tab');await page.locator('#origin-y').fill('900');await page.locator('#origin-y').press('Tab');
+ let promise=page.waitForEvent('download');await page.locator('#export-dxf').click();let download=await promise;assert.match(download.suggestedFilename(),/\.dxf$/);const filename=path.join(__dirname,'../qa-browser-export.dxf');await download.saveAs(filename);assert.ok(fs.readFileSync(filename,'utf8').includes('FACADE_STUDIO'));
+ await page.locator('#dxf-file').setInputFiles(filename);await page.locator('#process-dxf').click();await page.waitForSelector('#report-dialog[open]');assert.match(await page.locator('#import-summary').textContent(),/3 areas/);assert.equal(await page.locator('#import-warnings').textContent(),'All boundaries imported successfully.');await page.locator('#confirm-import').click();assert.equal(await page.locator('.area-row').count(),6);assert.equal(await page.locator('#origin-x').inputValue(),'500');assert.equal(await page.locator('#origin-y').inputValue(),'900');
+ promise=page.waitForEvent('download');await page.locator('#save-project').click();download=await promise;const jsonFile=path.join(__dirname,'../qa-export-project.json');await download.saveAs(jsonFile);const project=JSON.parse(fs.readFileSync(jsonFile));assert.equal(new Set(project.areas.map(a=>a.id)).size,6);
+ promise=page.waitForEvent('download');await page.locator('#command-input').fill('DXF');await page.locator('#command-input').press('Enter');assert.match((await promise).suggestedFilename(),/\.dxf$/);
+ assert.deepEqual(errors,[]);console.log('PASS: DXF button and command download, reimport with origin, duplicate ID handling and project save.');
+}finally{await browser?.close();server.kill()}})().catch(e=>{console.error(e);process.exitCode=1});
