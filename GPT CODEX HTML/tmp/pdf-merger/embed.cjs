@@ -1,0 +1,13 @@
+const fs=require('fs');
+let html=fs.readFileSync('PDF_MERGER.html','utf8');
+const start=html.indexOf('<script type="application/json" id="pdfWorkerSource">');
+const end=html.indexOf('  <script>\n/*! pdf-lib',start);
+if(start<0||end<0)throw Error('Markers missing');
+const main=fs.readFileSync('tmp/pdf-merger/pdf.mjs','utf8').replace(/^export \{[^\n]+\};/m,'window.pdfjsLib = {getDocument,GlobalWorkerOptions};').replace(/^\/\/# sourceMappingURL=.*$/mg,'');
+const worker=fs.readFileSync('tmp/pdf-merger/pdf.worker.mjs','utf8').replace(/^\/\/# sourceMappingURL=.*$/mg,'');
+const embedded='<script type="application/json" id="pdfWorkerSource">'+JSON.stringify(worker).replace(/</g,'\\u003c')+'</script>\n<script type="module">\n'+main+'\nwindow.pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(new Blob([JSON.parse(document.getElementById("pdfWorkerSource").textContent)],{type:"text/javascript"}));\n</script>\n';
+const libStart=html.indexOf('/*! pdf-lib');
+const libEnd=html.indexOf('</script>',libStart);
+const appStart=html.lastIndexOf('<script>');
+html=html.slice(0,start)+embedded+'<script>\n/*! pdf-lib v1.17.1 | MIT License | https://github.com/Hopding/pdf-lib */\n'+fs.readFileSync('tmp/pdf-merger/pdf-lib.min.js','utf8')+'</script>\n'+html.slice(appStart);
+fs.writeFileSync('PDF_MERGER.html',html);fs.writeFileSync('PDF_MERGER/index.html',html);
